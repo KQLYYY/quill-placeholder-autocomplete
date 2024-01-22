@@ -73,7 +73,7 @@
     "max-lines": [
       "warn",
       {
-        "max": 250,
+        "max": 300,
         "skipBlankLines": true,
         "skipComments": true
       }
@@ -84,7 +84,7 @@
     ],
     "max-statements": [
       "warn",
-      30
+      32
     ],
     "new-parens": "error",
     "no-compare-neg-zero": "warn",

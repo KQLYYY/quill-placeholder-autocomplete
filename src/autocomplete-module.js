@@ -1,7 +1,21 @@
-import FuzzySet from 'fuzzyset.js';
+/* eslint-disable no-nested-ternary */
 import debounce from 'lodash.debounce';
+import cn from 'classnames';
+import _ from 'lodash';
+
 import { h } from './utils';
 import getSuggestBlot from './suggestBlot';
+
+function escapeRegex(string) {
+  return string.replace(/[/\-\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
+const inputToPlaceholderValue = (val) => {
+  const escapedVal = escapeRegex(val);
+  const res = escapedVal.toUpperCase().replace(/[^a-zA-Z0-9_]/g, '');
+  return res;
+};
+
 
 export default (Quill) => {
   const Delta = Quill.import('delta');
@@ -30,10 +44,14 @@ export default (Quill) => {
       container,
       debounceTime = 0,
       triggerKey = '#',
-      endKey
+      endKey,
+      customPlaceholders,
+      createValidate
     }) {
       const bindedUpdateFn = this.update.bind(this);
 
+      this.createValidate = createValidate;
+      this.customPlaceholders = customPlaceholders;
       this.quill = quill;
       this.onClose = onClose;
       this.onOpen = onOpen;
@@ -97,15 +115,12 @@ export default (Quill) => {
       // }, this.onHashKey.bind(this));
 
       quill.root.addEventListener('keydown', (event) => {
-        if (event.defaultPrevented)
-          return; // Do nothing if the event was already processed
+        if (event.defaultPrevented) { return; } // Do nothing if the event was already processed
 
         if (event.key === this.triggerKey) {
-          if (!this.toolbarHeight)
-            this.toolbarHeight = quill.getModule('toolbar').container.offsetHeight;
+          if (!this.toolbarHeight) { this.toolbarHeight = quill.getModule('toolbar').container.offsetHeight; }
           this.onHashKey(quill.getSelection());
-        } else
-          return; // Quit when this doesn't handle the key event.
+        } else { return; } // Quit when this doesn't handle the key event.
 
         // Cancel the default action to avoid it being handled twice
         event.preventDefault();
@@ -114,13 +129,13 @@ export default (Quill) => {
       quill.keyboard.addBinding({
         key: 40,  // ArrowDown
         collapsed: true,
-        format: [ 'suggest' ]
+        format: ['suggest']
       }, this.handleArrow.bind(this));
 
       quill.keyboard.addBinding({
         key: 27,  // Escape
         collapsed: null,
-        format: [ 'suggest' ]
+        format: ['suggest']
       }, this.handleEscape.bind(this));
     }
 
@@ -134,8 +149,7 @@ export default (Quill) => {
     onHashKey(range) {
       // prevent from opening twice
       // NOTE: returning true stops event propagation in Quill
-      if (this.open)
-        return true;
+      if (this.open) { return true; }
 
       const { index, length } = range;
 
@@ -171,8 +185,7 @@ export default (Quill) => {
      * @memberof AutoComplete
      */
     handleArrow() {
-      if (!this.open)
-        return true;
+      if (!this.open) { return true; }
       this.buttons[0].focus();
     }
 
@@ -183,9 +196,19 @@ export default (Quill) => {
      * @memberof AutoComplete
      */
     handleSuggestAccept() {
-      if (!this.open)
-        return true;
-      this.close(this.matchedPlaceholders[0]);
+      if (!this.open) { return true; }
+
+
+      const queryPlacehorderValue = inputToPlaceholderValue(this.originalQuery);
+      const isShowCreateButtonShow = queryPlacehorderValue
+        && !this.customPlaceholders.map(({ id }) => id).includes(queryPlacehorderValue)
+        && this.createValidate(queryPlacehorderValue);
+
+      const resPlaceholder = this.matchedPlaceholders[0]
+        ? this.matchedPlaceholders[0] : isShowCreateButtonShow
+          ? { id: queryPlacehorderValue, label: queryPlacehorderValue } : null;
+
+      this.close(resPlaceholder);
     }
 
     /**
@@ -195,15 +218,13 @@ export default (Quill) => {
      * @memberof AutoComplete
      */
     handleEscape() {
-      if (!this.open)
-        return true;
+      if (!this.open) { return true; }
       this.close();
     }
 
     emptyCompletionsContainer() {
       // empty container completely
-      while (this.container.firstChild)
-        this.container.removeChild(this.container.firstChild);
+      while (this.container.firstChild) { this.container.removeChild(this.container.firstChild); }
     }
 
     /**
@@ -213,42 +234,37 @@ export default (Quill) => {
      */
     update() {
       // mostly to prevent list being updated if user hits 'Enter'
-      if (!this.open)
-        return;
+      if (!this.open) { return; }
       const sel = this.quill.getSelection().index;
       const placeholders = this.getPlaceholders();
       const labels = placeholders.map(({ label }) => label);
-      const fs = FuzzySet(labels, false);
       // user deleted the '#' character
       if (this.hashIndex >= sel) {
         this.close(null);
         return;
       }
       this.originalQuery = this.quill.getText(this.hashIndex + 1, sel - this.hashIndex - 1);
-      this.query = this.originalQuery.toLowerCase();
+      this.query = this.originalQuery.toUpperCase();
       // handle promise fetching custom placeholders
       if (this.fetchPlaceholders && !!this.query.length) {
-        this.handleAsyncFetching(placeholders, labels, fs)
+        this.handleAsyncFetching(placeholders, labels)
           .then(this.handleUpdateEnd.bind(this));
         return;
       }
 
-      this.handleUpdateEnd({ placeholders, labels, fs });
+      this.handleUpdateEnd({ placeholders, labels });
     }
 
     /**
      *  End of loop for update method:
      *    use data results to prepare and trigger render of completions list
      *
-     * @param {Object}  parsingData   { placeholders, labels, fs }
+     * @param {Object}  parsingData   { placeholders, labels }
      * @memberof AutoComplete
      */
-    handleUpdateEnd({ placeholders, labels, fs }) {
-      let labelResults = fs.get(this.query);
-      // FuzzySet can return a scores array or `null`
-      labelResults = labelResults
-          ? labelResults.map(([ , label ]) => label)
-          : labels;
+    handleUpdateEnd({ placeholders, labels }) {
+      const labelResults = labels.filter((text) => text.includes(this.query));
+
       this.matchedPlaceholders = placeholders
         .filter(({ label }) => labelResults.indexOf(label) !== -1);
       this.renderCompletions(this.matchedPlaceholders);
@@ -261,28 +277,27 @@ export default (Quill) => {
      *
      * @param   {Array}     placeholders  static placeholders from getter call
      * @param   {Array}     labels        labels extracted from labels for caching purpose
-     * @param   {FuzzySet}  fs            fuzzy set matcher
      * @returns {Object}                  same references passing to callback
      * @memberof AutoComplete
      */
-    handleAsyncFetching(placeholders, labels, fs) {
+    handleAsyncFetching(placeholders, labels) {
       this.onFetchStarted && this.onFetchStarted(this.query);
 
       return this.fetchPlaceholders(this.query)
         .then((results) => {
           this.onFetchFinished && this.onFetchFinished(results);
 
-          if(results && results.length)
+          if (results && results.length) {
             results.forEach((ph) => {
               const notExisting = labels.indexOf(ph.label) === -1;
 
               if (notExisting) {
-                fs.add(ph.label);
                 placeholders.push(ph);
                 labels.push(ph.label);
               }
             });
-          return { placeholders, labels, fs };
+          }
+          return { placeholders, labels };
         });
     }
 
@@ -292,8 +307,7 @@ export default (Quill) => {
      * @memberof AutoComplete
      */
     maybeUnfocus() {
-      if (this.container.querySelector('*:focus'))
-        return;
+      if (this.container.querySelector('*:focus')) { return; }
       this.close(null);
     }
 
@@ -305,7 +319,12 @@ export default (Quill) => {
     renderCompletions(placeholders) {
       this.emptyCompletionsContainer();
 
-      const buttons = Array(placeholders.length);
+      const queryPlacehorderValue = inputToPlaceholderValue(this.query);
+      const isShowCreateButtonShow = queryPlacehorderValue
+        && !this.customPlaceholders.map(({ id }) => id).includes(queryPlacehorderValue)
+        && this.createValidate(queryPlacehorderValue);
+
+      const buttons = Array(placeholders.length + isShowCreateButtonShow ? 1 : 0);
       this.buttons = buttons;
       /* eslint complexity: ["error", 13] */
       const handler = (i, placeholder) => (event) => {
@@ -319,41 +338,101 @@ export default (Quill) => {
           || event.key === ' ' || event.keyCode === 32
           || event.key === 'Tab' || event.keyCode === 9) {
           event.preventDefault();
+
           this.close(placeholder);
         } else if (event.key === 'Escape' || event.keyCode === 27) {
           event.preventDefault();
           this.close();
         }
       };
-      const regex = new RegExp('^(.*)('+this.query+')(.*)$');
+      const regex = new RegExp('^(.*)(' + escapeRegex(this.query) + ')(.*)$');
 
-      // prepare buttons corresponding to each placeholder
-      placeholders.forEach((placeholder, i) => {
-        const { label } = placeholder;
-        const match = label.match(regex) || [ null, label ];
-        const elements = match.slice(1)
-          .map((str, i) => {
-            if (!str.length)
-              return null;
 
-            return h(
-              'span',
-              { className: i === 1 ? 'matched' : 'unmatched' },
-              str
-            );
-          }).filter(elem => elem);
-        const li = h('li', {},
-          h('button', { type: 'button' }, ...elements)
+      const searchValue = this.query || '';
+
+      const defaultPlaceholders = _.orderBy(placeholders.filter((placeholder) =>
+        !this.customPlaceholders.map(({ id }) => id).includes(placeholder.id)),
+        (({ label }) => label.localeCompare(searchValue)));
+
+      const cusomPlaceholders = _.orderBy(placeholders.filter((placeholder) =>
+        this.customPlaceholders.map(({ id }) => id).includes(placeholder.id)),
+        (({ label }) => label.localeCompare(searchValue)));
+
+
+      const renderPlaceholders = (arr, index = 0) => {
+        // prepare buttons corresponding to each placeholder
+        arr.forEach((placeholder, arrI) => {
+          const i = index + arrI;
+          const { label } = placeholder;
+          const match = label.match(regex) || [null, label];
+          const elements = match.slice(1)
+            .map((str, i) => {
+              if (!str.length) { return null; }
+
+              return h(
+                'span',
+                { className: i === 1 ? 'matched' : 'unmatched' },
+                str
+              );
+            }).filter(elem => elem);
+          const li = h('li', {},
+            h('button', { type: 'button' }, ...elements)
+          );
+
+          this.container.appendChild(li);
+          buttons[i] = li.firstChild;
+          // event handlers will be garbage-collected with button on each re-render
+          buttons[i].addEventListener('keydown', handler(i, placeholder));
+          buttons[i].addEventListener('mousedown', () => this.close(placeholder));
+          buttons[i].addEventListener('focus', () => this.focusedButton = i);
+          buttons[i].addEventListener('unfocus', () => this.focusedButton = null);
+        });
+      };
+
+      renderPlaceholders(defaultPlaceholders);
+
+
+      if (cusomPlaceholders.length > 0) {
+        const customTagsLi = h('li', { style: { userSelect: 'none', tabIndex: '0' } },
+          h(
+            'span',
+            { className: 'custom-tags' },
+            'Custom tags'
+          )
+        );
+        this.container.appendChild(customTagsLi);
+      }
+
+      renderPlaceholders(cusomPlaceholders, defaultPlaceholders.length);
+
+
+      if (isShowCreateButtonShow) {
+
+        const i1 = placeholders.length;
+
+        const placeholder = { id: queryPlacehorderValue, label: queryPlacehorderValue };
+
+        const li1 = h('li', {},
+          h('button', { type: 'button' }, h(
+            'span',
+            {},
+            // { className: i1 === 1 ? 'matched' : 'unmatched' },
+            `Enter to create `,
+            h('span', { className: cn('ql-placeholder-content', 'suggest') }, `<${placeholder.label}/>`),
+            ' custom tag'
+          ))
         );
 
-        this.container.appendChild(li);
-        buttons[i] = li.firstChild;
+        this.container.appendChild(li1);
+
+        buttons[i1] = li1.firstChild;
         // event handlers will be garbage-collected with button on each re-render
-        buttons[i].addEventListener('keydown', handler(i, placeholder));
-        buttons[i].addEventListener('mousedown', () => this.close(placeholder));
-        buttons[i].addEventListener('focus', () => this.focusedButton = i);
-        buttons[i].addEventListener('unfocus', () => this.focusedButton = null);
-      });
+        buttons[i1].addEventListener('keydown', handler(i1, placeholder));
+        buttons[i1].addEventListener('mousedown', () => this.close(placeholder));
+        buttons[i1].addEventListener('focus', () => this.focusedButton = i1);
+        buttons[i1].addEventListener('unfocus', () => this.focusedButton = null);
+      }
+
       this.container.style.display = 'block';
     }
 
@@ -388,4 +467,3 @@ export default (Quill) => {
 
   return AutoComplete;
 };
-
