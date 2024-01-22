@@ -1,3 +1,4 @@
+/* eslint-disable consistent-return */
 /* eslint-disable no-nested-ternary */
 import debounce from 'lodash.debounce';
 import cn from 'classnames';
@@ -118,7 +119,9 @@ export default (Quill) => {
         if (event.defaultPrevented) { return; } // Do nothing if the event was already processed
 
         if (event.key === this.triggerKey) {
-          if (!this.toolbarHeight) { this.toolbarHeight = quill.getModule('toolbar').container.offsetHeight; }
+          if (!this.toolbarHeight) { 
+            this.toolbarHeight = quill.getModule('toolbar').container.offsetHeight; 
+          }
           this.onHashKey(quill.getSelection());
         } else { return; } // Quit when this doesn't handle the key event.
 
@@ -263,10 +266,13 @@ export default (Quill) => {
      * @memberof AutoComplete
      */
     handleUpdateEnd({ placeholders, labels }) {
-      const labelResults = labels.filter((text) => text.includes(this.query));
+      const searchValue = this.query || '';
+      const labelResults = labels.filter((text) => text.includes(searchValue));
 
-      this.matchedPlaceholders = placeholders
-        .filter(({ label }) => labelResults.indexOf(label) !== -1);
+      this.matchedPlaceholders = _.orderBy(placeholders
+        .filter(({ label }) => labelResults.indexOf(label) !== -1),
+        (({ label }) => label.localeCompare(searchValue)));
+
       this.renderCompletions(this.matchedPlaceholders);
     }
 
@@ -347,17 +353,11 @@ export default (Quill) => {
       };
       const regex = new RegExp('^(.*)(' + escapeRegex(this.query) + ')(.*)$');
 
+      const defaultPlaceholders = placeholders.filter((placeholder) =>
+        !this.customPlaceholders.map(({ id }) => id).includes(placeholder.id));
 
-      const searchValue = this.query || '';
-
-      const defaultPlaceholders = _.orderBy(placeholders.filter((placeholder) =>
-        !this.customPlaceholders.map(({ id }) => id).includes(placeholder.id)),
-        (({ label }) => label.localeCompare(searchValue)));
-
-      const cusomPlaceholders = _.orderBy(placeholders.filter((placeholder) =>
-        this.customPlaceholders.map(({ id }) => id).includes(placeholder.id)),
-        (({ label }) => label.localeCompare(searchValue)));
-
+      const cusomPlaceholders = placeholders.filter((placeholder) =>
+        this.customPlaceholders.map(({ id }) => id).includes(placeholder.id));
 
       const renderPlaceholders = (arr, index = 0) => {
         // prepare buttons corresponding to each placeholder
@@ -418,7 +418,8 @@ export default (Quill) => {
             {},
             // { className: i1 === 1 ? 'matched' : 'unmatched' },
             `Enter to create `,
-            h('span', { className: cn('ql-placeholder-content', 'suggest') }, `<${placeholder.label}/>`),
+            h('span', { className: cn('ql-placeholder-content', 'suggest') },
+            `<${placeholder.label}/>`),
             ' custom tag'
           ))
         );
